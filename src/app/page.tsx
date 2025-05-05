@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useChat, type Message } from 'ai/react';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -65,9 +66,49 @@ interface ChatMessagesProps {
   messages: MessageWithCards[];
   isLoading: boolean;
   onSetFollowUpMode: (isFollowUp: boolean) => void;
+  onSubmitSuggestion: (text: string) => void;
 }
 
-function ChatMessages({ messages, isLoading, onSetFollowUpMode }: ChatMessagesProps) {
+// New helper function to extract suggested answers from response
+function extractSuggestedAnswers(message: string): string[] {
+  if (!message.includes('SUGGESTED_ANSWERS:')) return [];
+  
+  try {
+    const suggestedAnswersSection = message.split('SUGGESTED_ANSWERS:')[1].split(/\n\n/)[0];
+    return suggestedAnswersSection
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('- '))
+      .map(line => line.substring(2).trim())
+      .filter(answer => answer.length > 0);
+  } catch (error) {
+    console.error('Error extracting suggested answers:', error);
+    return [];
+  }
+}
+
+// Function to programmatically submit a message
+const SuggestedAnswers = ({ answers, onSelectAnswer }: { answers: string[], onSelectAnswer: (answer: string) => void }) => {
+  if (answers.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 my-2">
+      {answers.map((answer, index) => (
+        <Button 
+          key={index} 
+          variant="outline" 
+          size="sm"
+          onClick={() => onSelectAnswer(answer)}
+          className="text-xs"
+        >
+          {answer}
+        </Button>
+      ))}
+    </div>
+  );
+};
+
+function ChatMessages({ messages, isLoading, onSetFollowUpMode, onSubmitSuggestion }: ChatMessagesProps) {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom effect
@@ -83,17 +124,35 @@ function ChatMessages({ messages, isLoading, onSetFollowUpMode }: ChatMessagesPr
   return (
     <div 
       ref={chatContainerRef}
-      className="flex-grow overflow-y-auto p-4 w-full"
+      className="flex-grow overflow-y-auto p-4 w-full chat-container"
       style={{ maxHeight: 'calc(100vh - 150px)' }}
     >
       {messages.length > 0 ? (
         <div className="flex flex-col space-y-6">
           {messages.map((m, index) => {
-            const shouldShowFollowUpButtons = 
+            const isLastAssistantMessage = 
               m.role === 'assistant' && 
-              index === messages.length - 1 && // Only show for the last message
+              index === messages.length - 1;
+              
+            const shouldShowFollowUpButtons = 
+              isLastAssistantMessage && 
               m.cards && 
               m.cards.length > 0; // Only show when there are tool recommendations
+              
+            // Extract suggested answers if this is the last assistant message
+            let suggestedAnswers: string[] = [];
+            let cleanedContent = m.content;
+            
+            if (m.role === 'assistant') {
+              suggestedAnswers = extractSuggestedAnswers(m.content);
+              
+              // Remove the SUGGESTED_ANSWERS section from displayed content
+              if (suggestedAnswers.length > 0) {
+                cleanedContent = m.content.split('SUGGESTED_ANSWERS:')[0].trim();
+              }
+            }
+            
+            const shouldShowSuggestedAnswers = isLastAssistantMessage && suggestedAnswers.length > 0;
 
             return (
               <div
@@ -110,12 +169,31 @@ function ChatMessages({ messages, isLoading, onSetFollowUpMode }: ChatMessagesPr
                 >
                   {m.role === 'assistant' ? (
                     <div className="prose prose-sm max-w-none">
-                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                      <ReactMarkdown>{cleanedContent}</ReactMarkdown>
                     </div>
                   ) : (
                     <span>{m.content}</span>
                   )}
                 </div>
+
+                {/* Suggested Answer Buttons */}
+                {shouldShowSuggestedAnswers && (
+                  <div className="flex flex-wrap gap-2 mt-4 pl-2">
+                    {suggestedAnswers.map((answer, i) => (
+                      <Button 
+                        key={`suggested-${i}`}
+                        variant="outline"
+                        size="sm"
+                        className="text-left"
+                        onClick={() => {
+                          onSubmitSuggestion(answer);
+                        }}
+                      >
+                        {answer}
+                      </Button>
+                    ))}
+                  </div>
+                )}
 
                 {/* Follow-up Buttons - Only show when there are tool recommendations */}
                 {shouldShowFollowUpButtons && (
@@ -174,6 +252,7 @@ interface ChatInputAreaProps {
   isLoading: boolean;
   isFollowUpMode: boolean;
   inputRef: React.RefObject<HTMLInputElement>;
+  formRef: React.RefObject<HTMLFormElement>;
   error: Error | undefined;
   onDebugClick: () => void; // Pass the debug handler
 }
@@ -185,12 +264,13 @@ function ChatInputArea({
   isLoading, 
   isFollowUpMode, 
   inputRef, 
+  formRef, 
   error, 
   onDebugClick 
 }: ChatInputAreaProps) {
   return (
     <div className="w-full bg-white py-4 px-2 border-t">
-      <form onSubmit={handleFormSubmit} className="flex items-center space-x-2">
+      <form onSubmit={handleFormSubmit} ref={formRef} className="flex items-center space-x-2">
         <Input
           ref={inputRef}
           className="flex-grow"
@@ -279,6 +359,7 @@ export default function Chat() {
   const [recommendationsPanelKey, setRecommendationsPanelKey] = useState<number>(0);
   const streamingMessageIdRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const {
     messages,
@@ -290,6 +371,7 @@ export default function Chat() {
     data,
     reload,
     setMessages,
+    append,
   } = useChat({
     onFinish: () => {
       streamingMessageIdRef.current = null;
@@ -379,6 +461,14 @@ export default function Chat() {
       
       if (JSON.stringify(processedMessages) !== JSON.stringify(enhancedMessages)) {
         setEnhancedMessages(processedMessages);
+        
+        // Scroll to bottom when new messages are added
+        setTimeout(() => {
+          const chatContainer = document.querySelector('.chat-container');
+          if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+          }
+        }, 100);
 
         // Modified input visibility logic to respect user requests
         const latestLastMessage = processedMessages[processedMessages.length - 1];
@@ -428,6 +518,16 @@ export default function Chat() {
     setUserRequestedInput(false);
   };
 
+  // Function to handle suggestion clicks
+  const handleSuggestionClick = (text: string) => {
+    if (text.trim()) {
+      append({
+        role: 'user',
+        content: text,
+      });
+    }
+  };
+
   const handleSetFollowUpMode = (isFollowUp: boolean) => {
     if (isFollowUp) {
       // Follow-up mode
@@ -470,9 +570,10 @@ export default function Chat() {
         <div className="flex-grow flex flex-col h-[calc(100%-140px)] overflow-hidden">
           {/* Chat Messages */}
           <ChatMessages 
-            messages={enhancedMessages} 
-            isLoading={isLoading} 
-            onSetFollowUpMode={handleSetFollowUpMode} 
+            messages={enhancedMessages}
+            isLoading={isLoading}
+            onSetFollowUpMode={handleSetFollowUpMode}
+            onSubmitSuggestion={handleSuggestionClick}
           />
         </div>
 
@@ -485,6 +586,7 @@ export default function Chat() {
             isLoading={isLoading}
             isFollowUpMode={isFollowUpMode}
             inputRef={inputRef as React.RefObject<HTMLInputElement>}
+            formRef={formRef as React.RefObject<HTMLFormElement>}
             error={error}
             onDebugClick={handleDebugClick}
           />

@@ -91,6 +91,11 @@ export async function POST(req: NextRequest) {
       console.log('Recommended Tool IDs for follow-up:', recommendedToolIds);
     }
 
+    // Count how many assistant messages are clarification questions
+    // This helps us enforce the "at least 5 questions" rule
+    const assistantMessageCount = messages.filter(m => m.role === 'assistant').length;
+    console.log(`Current assistant message count: ${assistantMessageCount}`);
+    
     const data = new StreamData();
     let streamSource = 'unknown'; // Track the stream source for logging
 
@@ -152,17 +157,32 @@ export async function POST(req: NextRequest) {
 
 **Conversation Flow:**
 1. Analyze the user's latest message and the conversation history.
-2. Decide if the request is specific enough OR you have already asked 2-3 clarifying questions.
-3. **If YES (ready to recommend):** Generate the final introductory text (confirming tool type, explaining purpose, directing to cards below). Do NOT list specific tool names. Then, on a new line at the very end, append exactly:
+2. Count how many clarification questions you have already asked in this conversation.
+3. **IMPORTANT: You MUST ask at least 5 clarifying questions before making recommendations, but ask ONLY ONE QUESTION AT A TIME.**
+4. **If you have asked 5 or more clarifying questions AND have enough information:** Generate the final introductory text (confirming tool type, explaining purpose, directing to cards below). Do NOT list specific tool names. Then, on a new line at the very end, append exactly:
 ${INTENT_RECOMMEND}
-4. **If NO (need clarification):** Ask *one* specific clarifying question (max 3 total). Then, on a new line at the very end, append exactly:
+5. **Otherwise (need more clarification):** Ask ONLY ONE specific clarifying question (total of at least 5 required). Provide 2-4 recommended answer buttons to make it easier for the user to respond. Then, on a new line at the very end, append exactly:
 ${INTENT_CLARIFY}
 
-**IMPORTANT:** Always append either ${INTENT_RECOMMEND} or ${INTENT_CLARIFY} on a new line as the absolute last part of your response.`;
+**IMPORTANT:** 
+- NEVER ask multiple questions at once. ONLY ask ONE question at a time.
+- Each response should contain only a single follow-up question.
+- Always append either ${INTENT_RECOMMEND} or ${INTENT_CLARIFY} on a new line as the absolute last part of your response.
+- When asking clarification questions, *always* include answer suggestions by putting them in a list format starting with "SUGGESTED_ANSWERS:" at the end of your response, just before the intent flag. For example:
 
-      // Use ChatCompletionMessageParam type from openai package
+SUGGESTED_ANSWERS:
+- Option A
+- Option B
+- Option C
+
+${INTENT_CLARIFY}`;
+
+      // Add information about the current question count to force the model to follow the rule
       const intentCheckMessages: ChatCompletionMessageParam[] = [
-        { role: 'system', content: systemPrompt },
+        { 
+          role: 'system', 
+          content: systemPrompt + `\n\nYou have asked ${assistantMessageCount} clarifying questions so far. Remember, you MUST ask at least 5 questions total before recommending tools.`
+        },
         ...messages
           .filter(msg => msg.role === 'user' || msg.role === 'assistant')
           .map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content as string }))
@@ -192,7 +212,15 @@ ${INTENT_CLARIFY}
       const lines = fullLlmResponse.split('\n');
       const lastLine = lines.length > 0 ? lines[lines.length - 1].trim() : '';
       if (lastLine.endsWith(INTENT_RECOMMEND)) {
-          intent = INTENT_RECOMMEND;
+          // Check if we have enough clarification questions
+          if (assistantMessageCount >= 4) { // ≥4 means this will be the 5th or higher interaction
+            intent = INTENT_RECOMMEND;
+            console.log(`Allowing recommendation after ${assistantMessageCount} assistant messages`);
+          } else {
+            // Override the intent - force more clarification
+            intent = INTENT_CLARIFY;
+            console.log(`Overriding intent to CLARIFY - only ${assistantMessageCount} assistant messages so far, need at least 5`);
+          }
           const flagIndex = fullLlmResponse.lastIndexOf(INTENT_RECOMMEND);
           mainResponseText = fullLlmResponse.substring(0, flagIndex).trim();
       } else if (lastLine.endsWith(INTENT_CLARIFY)) {
