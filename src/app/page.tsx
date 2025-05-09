@@ -110,6 +110,7 @@ const SuggestedAnswers = ({ answers, onSelectAnswer }: { answers: string[], onSe
 
 function ChatMessages({ messages, isLoading, onSetFollowUpMode, onSubmitSuggestion }: ChatMessagesProps) {
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [selectedAnswers, setSelectedAnswers] = useState<string[]>([]);
 
   // Scroll to bottom effect
   useEffect(() => {
@@ -120,6 +121,21 @@ function ChatMessages({ messages, isLoading, onSetFollowUpMode, onSubmitSuggesti
 
   // Check if any message has cards (recommendations)
   const hasRecommendations = messages.some(m => m.cards && m.cards.length > 0);
+
+  const handleToggleAnswer = (answer: string) => {
+    setSelectedAnswers(prev =>
+      prev.includes(answer)
+        ? prev.filter(item => item !== answer)
+        : [...prev, answer]
+    );
+  };
+
+  const handleSubmitSelectedAnswers = () => {
+    if (selectedAnswers.length > 0) {
+      onSubmitSuggestion(selectedAnswers.join('; '));
+      setSelectedAnswers([]); // Clear selection after submitting
+    }
+  };
 
   return (
     <div 
@@ -178,20 +194,33 @@ function ChatMessages({ messages, isLoading, onSetFollowUpMode, onSubmitSuggesti
 
                 {/* Suggested Answer Buttons */}
                 {shouldShowSuggestedAnswers && (
-                  <div className="flex flex-wrap gap-2 mt-4 pl-2">
-                    {suggestedAnswers.map((answer, i) => (
-                      <Button 
-                        key={`suggested-${i}`}
-                        variant="outline"
+                  <div className="mt-4 pl-2">
+                    <div className="text-sm text-muted-foreground mb-2">
+                      Select one or more options, or type your own response.
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {suggestedAnswers.map((answer, i) => (
+                        <Button
+                          key={`suggested-${i}`}
+                          variant={selectedAnswers.includes(answer) ? "default" : "outline"}
+                          size="sm"
+                          className="text-left"
+                          onClick={() => handleToggleAnswer(answer)}
+                        >
+                          {answer}
+                        </Button>
+                      ))}
+                    </div>
+                    {selectedAnswers.length > 0 && (
+                      <Button
+                        variant="default"
                         size="sm"
-                        className="text-left"
-                        onClick={() => {
-                          onSubmitSuggestion(answer);
-                        }}
+                        className="mt-3 bg-blue-500 hover:bg-blue-600 text-white"
+                        onClick={handleSubmitSelectedAnswers}
                       >
-                        {answer}
+                        Send Selected ({selectedAnswers.length})
                       </Button>
-                    ))}
+                    )}
                   </div>
                 )}
 
@@ -254,7 +283,6 @@ interface ChatInputAreaProps {
   inputRef: React.RefObject<HTMLInputElement>;
   formRef: React.RefObject<HTMLFormElement>;
   error: Error | undefined;
-  onDebugClick: () => void; // Pass the debug handler
 }
 
 function ChatInputArea({ 
@@ -265,8 +293,7 @@ function ChatInputArea({
   isFollowUpMode, 
   inputRef, 
   formRef, 
-  error, 
-  onDebugClick 
+  error
 }: ChatInputAreaProps) {
   return (
     <div className="w-full bg-white py-4 px-2 border-t">
@@ -287,17 +314,6 @@ function ChatInputArea({
         </Button>
       </form>
       {error && <div className="mt-2 text-red-500 text-sm">Error: {error.message}</div>}
-      
-      {process.env.NODE_ENV === 'development' && (
-        <Button 
-          onClick={onDebugClick}
-          variant="outline"
-          size="sm"
-          className="mt-4"
-        >
-          Debug in Console
-        </Button>
-      )}
     </div>
   );
 }
@@ -553,11 +569,6 @@ export default function Chat() {
     }
   };
 
-  // Debug click handler (passed to ChatInputArea)
-  const handleDebugClick = () => {
-    console.log({ enhancedMessages, data, allRecommendedTools, streamingId: streamingMessageIdRef.current });
-  };
-
   return (
     <div className="flex flex-col md:flex-row w-full min-h-screen h-screen overflow-hidden">
       {/* Left Column: Chat Area */}
@@ -588,7 +599,6 @@ export default function Chat() {
             inputRef={inputRef as React.RefObject<HTMLInputElement>}
             formRef={formRef as React.RefObject<HTMLFormElement>}
             error={error}
-            onDebugClick={handleDebugClick}
           />
         )}
       </div>

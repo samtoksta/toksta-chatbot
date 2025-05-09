@@ -18,6 +18,11 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-league-spartan)", "League Spartan", "sans-serif"],
+        mono: ["var(--font-league-spartan)", "League Spartan", "monospace"],
+        spartan: ["var(--font-league-spartan)", "League Spartan", "sans-serif"],
+      },
       // ... any existing extensions from components.json or your own ...
       keyframes: {
         "accordion-down": {

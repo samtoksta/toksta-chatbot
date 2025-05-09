@@ -1,0 +1,33 @@
+/* Font override styles with highest possible specificity */
+html body *:not(svg):not(path) {
+  font-family: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+}
+
+/* Override specific elements that might use system fonts */
+button, input, select, textarea, code, pre, kbd, samp, 
+h1, h2, h3, h4, h5, h6, p, span, div, a,
+.text-xs, .text-sm, .text-base, .text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl {
+  font-family: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+}
+
+/* Override monospace font to use League Spartan as well */
+code, pre, kbd, samp, .font-mono, [class*="font-mono"] {
+  font-family: 'League Spartan', var(--font-league-spartan), monospace !important;
+}
+
+/* Reset any tailwind font classes */
+.font-sans, .font-serif, .font-mono {
+  font-family: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+}
+
+/* Override any inline styles or high-specificity selectors */
+[style*="font-family"], [class*="font-"] {
+  font-family: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+}
+
+/* Override CSS variables that might control fonts */
+:root {
+  --default-font-family: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+  --font-sans: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+  --font-mono: 'League Spartan', var(--font-league-spartan), monospace !important;
+} 

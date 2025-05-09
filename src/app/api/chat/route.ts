@@ -13,7 +13,7 @@ export const runtime = 'edge';
 // --- Configuration ---
 const openAIApiKey = process.env.OPENAI_API_KEY;
 const embeddingModel = 'text-embedding-3-small';
-const chatModel = 'gpt-4o'; // Use a capable chat model
+const chatModel = 'gpt-4.1-mini-2025-04-14'
 const topK = 5; // How many products to initially match
 const transcriptMatchThreshold = 0.5;
 const transcriptMatchCount = 3; // Max chunks per product
@@ -77,9 +77,18 @@ function prepareCardData(productContext: ProductFactWithEmbedding[]) {
 // --- Main Request Handler ---
 export async function POST(req: NextRequest) {
   try {
-    // Read the isFollowUp flag and recommendedToolIds from the request body
-    const { messages, isFollowUp, recommendedToolIds }: { messages: CoreMessage[]; isFollowUp?: boolean; recommendedToolIds?: string[] } = await req.json();
+    // Reverted: Read the isFollowUp flag and recommendedToolIds from the request body
+    const { messages, isFollowUp, recommendedToolIds }: { 
+      messages: CoreMessage[]; // messages is required again
+      isFollowUp?: boolean; 
+      recommendedToolIds?: string[];
+    } = await req.json();
     
+    // Reverted: data initialization moved back into the non-follow-up branch or handled as needed
+
+    // Reverted: Removed Initial Greeting Handling Block
+
+    // Reverted: messages validation
     if (!messages || messages.length === 0) return new Response('Missing messages', { status: 400 });
     const lastMessage = messages[messages.length - 1];
     if (typeof lastMessage.content !== 'string') return new Response('Last message content invalid', { status: 400 });
@@ -96,7 +105,7 @@ export async function POST(req: NextRequest) {
     const assistantMessageCount = messages.filter(m => m.role === 'assistant').length;
     console.log(`Current assistant message count: ${assistantMessageCount}`);
     
-    const data = new StreamData();
+    const data = new StreamData(); // data initialized here again for the original logic path
     let streamSource = 'unknown'; // Track the stream source for logging
 
     // --- Conditional Logic based on isFollowUp ---
@@ -105,7 +114,7 @@ export async function POST(req: NextRequest) {
       console.log('Handling as a follow-up question.');
       streamSource = 'follow_up_response';
 
-      let followUpSystemPrompt = "You are an AI assistant helping users discuss SaaS tools. Answer the user's follow-up question based on the conversation history.";
+      let followUpSystemPrompt = "You are an AI assistant helping users find the perfect SaaS for their particular needs. Answer the user's follow-up question based on the conversation history.";
       
       // Check if specific tool IDs were provided for context
       if (recommendedToolIds && recommendedToolIds.length > 0) {
@@ -115,7 +124,7 @@ export async function POST(req: NextRequest) {
           
           if (relevantTools.length > 0) {
               const toolNames = relevantTools.map(t => t.name).join(', ');
-              followUpSystemPrompt = `You are an AI assistant helping users discuss specific SaaS tools. The user previously saw recommendations for: ${toolNames}. Their follow-up question relates ONLY to these tools. Answer the question based *only* on these tools (${toolNames}) and the conversation history. Do not mention or compare any other tools.`;
+              followUpSystemPrompt = `You are an AI assistant helping users find the perfect SaaS for their particular needs. The user previously saw recommendations for: ${toolNames}. Their follow-up question relates ONLY to these tools. Answer the question based *only* on these tools (${toolNames}) and the conversation history. Do not mention or compare any other tools.`;
               console.log('Updated follow-up prompt for context:', followUpSystemPrompt);
           } else {
               console.warn('Follow-up requested for tool IDs, but no matching tools found in data.');
@@ -153,27 +162,44 @@ export async function POST(req: NextRequest) {
       console.log('Handling as a new query or clarification. Proceeding with intent check.');
       
       // 1. Prepare messages for LLM intent check
-      const systemPrompt = `You are an AI assistant helping users discover SaaS tools. Your goal is to first understand the user's needs through clarification, then provide a brief text leading into tool recommendation cards.
+      const systemPrompt = `You are an AI assistant helping to match users with the perfect SaaS tool for their needs. 
+      Your goal is to first understand the user's needs through clarification on specific features they need, 
+      then provide a brief text leading into tool recommendation cards.
 
 **Conversation Flow:**
 1. Analyze the user's latest message and the conversation history.
 2. Count how many clarification questions you have already asked in this conversation.
-3. **IMPORTANT: You MUST ask at least 5 clarifying questions before making recommendations, but ask ONLY ONE QUESTION AT A TIME.**
-4. **If you have asked 5 or more clarifying questions AND have enough information:** Generate the final introductory text (confirming tool type, explaining purpose, directing to cards below). Do NOT list specific tool names. Then, on a new line at the very end, append exactly:
+3. **IMPORTANT: You MUST ask at least 10 clarifying questions before making recommendations, but ask ONLY ONE QUESTION AT A TIME.**
+4. **If you have asked 10 or more clarifying questions AND have enough information:**
+Generate the final introductory text (confirming tool type, explaining purpose, directing to cards on the right hand side).
+Do NOT list specific tool names. Then, on a new line at the very end, append exactly:
 ${INTENT_RECOMMEND}
-5. **Otherwise (need more clarification):** Ask ONLY ONE specific clarifying question (total of at least 5 required). Provide 2-4 recommended answer buttons to make it easier for the user to respond. Then, on a new line at the very end, append exactly:
+5. **Otherwise (need more clarification):** Ask ONLY ONE specific clarifying question (total of at least 10 required).
+Present a list of suggested options (aim for at least 5) as potential answers.
+**Crucially, each option's text should be self-contained, directly incorporate the core subject of your question, AND BE OPTIMIZED FOR VECTOR SEARCH.**
+**This means focusing on nouns, key features, specific requirements, or concise descriptors rather than full conversational sentences or evaluative phrases like "is important" or "I need". The goal is to extract keywords and specific attributes.**
+**When a user indicates they *don't* need a feature (a negative preference), the suggested answer should ideally reframe this as a positive preference for an alternative, or a neutral statement that avoids strongly featuring the undesired keywords in a way that would attract them during a search. The aim is to prevent the vector search from being misled by the presence of keywords for features the user explicitly *rejects*.**
+For example, if you ask "How important is real-time collaboration for your team?",
+suggested answers for *wanting* it could be "Advanced real-time collaboration", "Basic real-time collaboration".
+Suggested answers for *not* wanting it could be "Focus on asynchronous communication", "Individual task workflow preferred", or "Real-time collaboration: Not a priority" rather than "No real-time collaboration features".
+Other neutral options: "Collaboration features: No preference".
+This ensures the user's selection provides clear, keyword-rich context for vector search, or clearly indicates an exclusion.
+If offering an "all of the features mentioned" type option, ensure it clearly references the features from *your current question and suggested answers* in a keyword-focused way.
+Then, on a new line at the very end, append exactly:
 ${INTENT_CLARIFY}
 
-**IMPORTANT:** 
+**IMPORTANT:**
 - NEVER ask multiple questions at once. ONLY ask ONE question at a time.
 - Each response should contain only a single follow-up question.
 - Always append either ${INTENT_RECOMMEND} or ${INTENT_CLARIFY} on a new line as the absolute last part of your response.
 - When asking clarification questions, *always* include answer suggestions by putting them in a list format starting with "SUGGESTED_ANSWERS:" at the end of your response, just before the intent flag. For example:
 
 SUGGESTED_ANSWERS:
-- Option A
-- Option B
-- Option C
+- Feature A: Specific aspect
+- Alternative B: If not Feature A
+- Requirement C: Level
+- Focus on: Different approach
+- Feature X: Not a priority
 
 ${INTENT_CLARIFY}`;
 
@@ -234,17 +260,70 @@ ${INTENT_CLARIFY}`;
       console.log(`Main Response Text: ${mainResponseText}`);
 
       // --- Streaming Logic using Vercel AI SDK --- 
-      const data = new StreamData();
       // Initialize llmStreamMessages to avoid use-before-assign error
       let llmStreamMessages: ChatCompletionMessageParam[] = []; 
-      let streamSource = 'clarification';
+      let streamSource = 'clarification'; // Default stream source
+      let textForEmbedding = mainResponseText; // Initialize with the LLM's textual response
 
       if (intent === INTENT_RECOMMEND) {
+        // Attempt to reconstruct a better query for embedding if user selected a generic option
+        const lastUserMessage = messages[messages.length - 1];
+        const lastUserQuery = typeof lastUserMessage?.content === 'string' ? lastUserMessage.content.toLowerCase() : "";
+
+        const genericCatchAllPhrases = [
+            "all of the features mentioned",
+            "all of the above",
+            "all features",
+            "all of them",
+            "yes, all of those"
+        ];
+
+        const userChoseGenericCatchAll = genericCatchAllPhrases.some(phrase => 
+            lastUserQuery.includes(phrase.toLowerCase())
+        );
+
+        if (userChoseGenericCatchAll && messages.length >= 2) {
+            const previousAssistantMessage = messages[messages.length - 2];
+            if (previousAssistantMessage?.role === 'assistant' && typeof previousAssistantMessage.content === 'string') {
+                const assistantResponseText = previousAssistantMessage.content;
+                const suggestedAnswersMarker = "SUGGESTED_ANSWERS:";
+                const markerIndex = assistantResponseText.indexOf(suggestedAnswersMarker);
+
+                if (markerIndex !== -1) {
+                    const suggestionsBlock = assistantResponseText.substring(markerIndex + suggestedAnswersMarker.length);
+                    const featureLines = suggestionsBlock.split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line.startsWith('- '))
+                        .map(line => line.substring(2).trim());
+
+                    const concreteFeatures = featureLines.filter(feature => 
+                        feature.length > 0 && 
+                        !genericCatchAllPhrases.some(phrase => feature.toLowerCase() === phrase.toLowerCase())
+                    );
+
+                    if (concreteFeatures.length > 0) {
+                        textForEmbedding = concreteFeatures.join('. '); 
+                        console.log(`Reconstructed query for embedding from previous suggestions: "${textForEmbedding}"`);
+                    } else {
+                        console.warn("User chose a generic catch-all, but no concrete features extracted. Using LLM's current response for embedding.");
+                    }
+                } else {
+                     console.warn("User chose a generic catch-all, but 'SUGGESTED_ANSWERS:' marker not found. Using LLM's current response for embedding.");
+                }
+            } else {
+                console.warn("User chose a generic catch-all, but previous message was not suitable. Using LLM's current response for embedding.");
+            }
+        } else if (intent === INTENT_RECOMMEND) {
+            // If not a generic response, mainResponseText (AI's summary) is used.
+             console.log(`Using LLM's main response text for embedding: "${mainResponseText}"`);
+        }
+        // textForEmbedding is now set
+
         // 4a. Generate embedding (using standard openai client)
-        console.log(`Generating embedding based on LLM response: "${mainResponseText}"`);
+        console.log(`Generating embedding based on: "${textForEmbedding}"`); // Use the refined text
         const queryEmbeddingResponse = await openai.embeddings.create({
             model: embeddingModel,
-            input: mainResponseText.replace(/\n/g, ' '),
+            input: textForEmbedding.replace(/\n/g, ' '), // Use textForEmbedding
             dimensions: 1536,
         });
         const queryEmbedding = queryEmbeddingResponse.data[0].embedding;

@@ -1,15 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const leagueSpartan = localFont({
+  src: "./fonts/LeagueSpartan-VariableFont_wght.ttf",
+  variable: "--font-league-spartan",
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
@@ -23,9 +19,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={leagueSpartan.variable}>
+      <head>
+        <link 
+          rel="preload" 
+          href="/fonts/LeagueSpartan-VariableFont_wght.ttf" 
+          as="font" 
+          type="font/ttf" 
+          crossOrigin="anonymous" 
+        />
+        <style dangerouslySetInnerHTML={{ __html: `
+          :root {
+            --font-league-spartan: 'League Spartan', sans-serif;
+            --default-font-family: 'League Spartan', sans-serif !important;
+          }
+          
+          html, body, * {
+            font-family: 'League Spartan', var(--font-league-spartan), sans-serif !important;
+          }
+        `}} />
+      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className="antialiased font-sans"
+        style={{ fontFamily: "'League Spartan', var(--font-league-spartan), sans-serif" }}
       >
         {children}
       </body>
